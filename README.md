@@ -96,11 +96,23 @@ streamlit run app.py
 
 Then open the local Streamlit URL, upload label image files, enter the expected application fields, and select **Run Verification**.
 
+## Sample Data
+
+A generated sample label image is included in `sample_data/old_tom_dist.png` for demonstration and testing.
+
+Suggested application data for the sample image:
+
+- Brand Name: `OLD TOM DISTILLERY`
+- Class/Type: `Kentucky Straight Bourbon Whiskey`
+- Alcohol Content / ABV: `45%`
+- Net Contents: `750 mL`
+
 ## Source Repository Contents
 
 Expected repository files:
 
 - `app.py`: Streamlit application, OCR pipeline, matching engine, scoring logic, batch processing, and CSV export.
+- `sample_data/old_tom_dist.png`: Generated sample label image for demonstration testing.
 - `requirements.txt`: Python package dependencies.
 - `packages.txt`: System dependency used by Streamlit Community Cloud to install the free Tesseract OCR engine.
 - `.streamlit/config.toml`: Streamlit runtime configuration.

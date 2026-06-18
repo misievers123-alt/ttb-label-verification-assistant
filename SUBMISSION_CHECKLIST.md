@@ -18,8 +18,9 @@ Create a GitHub repository and include these files:
 - `.gitignore`
 - `README.md`
 - `SUBMISSION_CHECKLIST.md`
+- `sample_data/old_tom_dist.png`
 
-The README includes setup instructions, run instructions, approach, tools used, assumptions, limitations, security/privacy notes, and human-in-the-loop review guidance.
+The README includes setup instructions, run instructions, approach, tools used, assumptions, limitations, security/privacy notes, human-in-the-loop review guidance, sample test data, trade-offs, and future enhancements.
 
 ## Deliverable 2: Deployed Application URL
 
@@ -43,6 +44,12 @@ Image -> OCR -> Field Extraction -> Confidence Scoring -> Human Review
 It focuses on matching, not chatbot interaction. It uses fuzzy matching for Brand Name and Class/Type, strict validation for the Government Warning, field-level scores, weighted overall scores, Pass / Needs Review / Fail routing, batch processing, and CSV export.
 
 It is standalone, does not integrate with COLA, does not use paid external AI APIs, and does not intentionally store uploaded label data.
+
+## Sample Data And Future Enhancements
+
+- A generated sample label image is included at `sample_data/old_tom_dist.png`.
+- Future enhancement notes include optional barcode/UPC scanning when available on packaging.
+- Future enhancement notes include input masking and normalized field entry for values such as `750ml`, `750 ml`, and `750 mL`.
 
 ## Stakeholder Mapping
 

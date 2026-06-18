@@ -6,6 +6,7 @@ This archive contains the complete source and documentation package for the TTB 
 
 - `app.py` - Streamlit application with OCR extraction, field comparison, scoring, batch upload, CSV export, and human-review routing.
 - `README.md` - Project summary, mission fit, setup/run instructions, scoring methodology, assumptions, limitations, security/privacy notes, human-in-the-loop explanation, stakeholder alignment, trade-offs, and deployment instructions.
+- `sample_data/old_tom_dist.png` - Generated sample label image for demonstration testing.
 - `requirements.txt` - Python dependencies.
 - `packages.txt` - Streamlit Cloud system package dependency for Tesseract OCR.
 - `.streamlit/config.toml` - Streamlit configuration.
@@ -23,6 +24,10 @@ Image -> OCR -> Field Extraction -> Confidence Scoring -> Human Review
 ```
 
 It is a standalone AI/OCR decision-support tool for alcohol label verification by TTB compliance agents. It is not a chatbot, does not integrate with COLA, does not require paid/cloud AI APIs, and does not make autonomous approval decisions.
+
+## Future Enhancement Notes
+
+The README documents future improvements such as barcode/UPC scanning where present on alcohol packaging and input masking/normalized application field entry to reduce preventable formatting-based mismatches.
 
 ## Verification Notes
 
