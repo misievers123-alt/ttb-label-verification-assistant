@@ -234,3 +234,4 @@ Even Pass results should be spot-checked when source images are low quality, OCR
 - Add automated test fixtures with sample label images and expected outcomes.
 - Add barcode/UPC scan support so reviewers can optionally capture product identifiers from label or package images and compare them against application or distribution metadata when available.
 - Explore barcode/UPC scanning where present on alcohol packaging. Not all labels include scannable product identifiers, so this would be an optional enrichment feature rather than a required validation step.
+- Add input masking and normalized field entry for application data so values such as `750ml`, `750 ml`, and `750 mL` are standardized before comparison, reducing preventable reviewer input variation. This would improve reviewer usability by reducing false mismatches caused by spacing, capitalization, or formatting differences in manually entered application data.
