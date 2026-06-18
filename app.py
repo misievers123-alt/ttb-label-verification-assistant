@@ -51,6 +51,7 @@ OCR_MIN_TEXT_LENGTH = 30
 class FieldResult:
     expected: str
     observed: str
+    detected: str
     score: int
     method: str
     status: str
@@ -66,6 +67,7 @@ class LabelReview:
     status: str
     processing_seconds: float
     ocr_quality_note: str
+    ocr_confidence: float | None
 
 
 def normalize_text(value: str) -> str:
@@ -98,6 +100,22 @@ def fuzzy_score(expected: str, observed: str) -> int:
             )
         )
     return int(SequenceMatcher(None, expected_norm, observed_norm).ratio() * 100)
+
+
+def best_fuzzy_match(expected: str, ocr_text: str) -> Tuple[str, int]:
+    lines = [line.strip() for line in ocr_text.splitlines() if line.strip()]
+    candidates = lines + ([" ".join(lines)] if lines else [])
+    if not candidates:
+        return "", 0
+
+    best_text = ""
+    best_score = 0
+    for candidate in candidates:
+        score = fuzzy_score(expected, candidate)
+        if score > best_score:
+            best_text = candidate
+            best_score = score
+    return best_text, best_score
 
 
 def extract_abv_candidates(text: str) -> str:
@@ -183,7 +201,7 @@ def normalized_net_contents_score(expected: str, observed: str) -> int:
         tolerance = max(expected_amount * 0.01, 0.1)
         if abs(expected_amount - observed_amount) <= tolerance:
             return 100
-    return fuzzy_score(expected, observed)
+    return 0
 
 
 def warning_score(ocr_text: str) -> int:
@@ -194,8 +212,16 @@ def warning_score(ocr_text: str) -> int:
     if not observed:
         return 0
     if fuzz:
-        return int(fuzz.partial_ratio(expected, observed))
-    return int(SequenceMatcher(None, expected, observed).ratio() * 100)
+        return min(int(fuzz.partial_ratio(expected, observed)), 99)
+    return min(int(SequenceMatcher(None, expected, observed).ratio() * 100), 99)
+
+
+def warning_detected_text(ocr_text: str, score: int) -> str:
+    if score == 100:
+        return "Full required Government Warning text detected in OCR output."
+    if score >= WARNING_PARTIAL_THRESHOLD:
+        return "Partial warning-like text detected; human review required."
+    return ""
 
 
 def ocr_quality_note(ocr_text: str) -> str:
@@ -232,56 +258,82 @@ def warning_notes(score: int) -> str:
     return "Required warning text was not found with sufficient confidence."
 
 
-def run_ocr(image: Image.Image) -> str:
+def run_ocr(image: Image.Image) -> Tuple[str, float | None]:
     if pytesseract is None:
         raise RuntimeError("pytesseract is not installed. Install requirements.txt and try again.")
 
     prepared = ImageOps.exif_transpose(image).convert("L")
     prepared = ImageOps.autocontrast(prepared)
-    return pytesseract.image_to_string(prepared)
+    ocr_text = pytesseract.image_to_string(prepared)
+
+    confidence_values = []
+    try:
+        data = pytesseract.image_to_data(prepared, output_type=pytesseract.Output.DICT)
+        for raw_conf in data.get("conf", []):
+            try:
+                conf = float(raw_conf)
+            except (TypeError, ValueError):
+                continue
+            if conf >= 0:
+                confidence_values.append(conf)
+    except Exception:
+        confidence_values = []
+
+    avg_confidence = (
+        sum(confidence_values) / len(confidence_values) if confidence_values else None
+    )
+    return ocr_text, avg_confidence
 
 
 def score_fields(expected_fields: Dict[str, str], ocr_text: str) -> Dict[str, FieldResult]:
-    abv_observed = extract_abv_candidates(ocr_text) or ocr_text
-    net_observed = extract_net_contents_candidates(ocr_text) or ocr_text
+    brand_detected, brand_score = best_fuzzy_match(expected_fields["Brand Name"], ocr_text)
+    class_detected, class_score = best_fuzzy_match(expected_fields["Class/Type"], ocr_text)
+    abv_detected = extract_abv_candidates(ocr_text)
+    net_detected = extract_net_contents_candidates(ocr_text)
     warning_match_score = warning_score(ocr_text)
+    warning_detected = warning_detected_text(ocr_text, warning_match_score)
 
     results = {
         "Brand Name": FieldResult(
             expected_fields["Brand Name"],
-            ocr_text,
-            fuzzy_score(expected_fields["Brand Name"], ocr_text),
+            brand_detected,
+            brand_detected,
+            brand_score,
             "Fuzzy text match",
             "",
-            "Allows punctuation, capitalization, and OCR variation.",
+            "Best OCR text match; allows punctuation, capitalization, and OCR variation.",
         ),
         "Class/Type": FieldResult(
             expected_fields["Class/Type"],
-            ocr_text,
-            fuzzy_score(expected_fields["Class/Type"], ocr_text),
+            class_detected,
+            class_detected,
+            class_score,
             "Fuzzy text match",
             "",
-            "Uses full OCR text because class/type may appear in several label positions.",
+            "Best OCR text match because class/type may appear in several label positions.",
         ),
         "Alcohol Content / ABV": FieldResult(
             expected_fields["Alcohol Content / ABV"],
-            abv_observed,
-            normalized_abv_score(expected_fields["Alcohol Content / ABV"], abv_observed),
+            abv_detected,
+            abv_detected,
+            normalized_abv_score(expected_fields["Alcohol Content / ABV"], abv_detected),
             "Normalized numeric comparison",
             "",
-            "Compares extracted percentage values with tolerance for OCR formatting.",
+            "Compares percentage values extracted directly from OCR text.",
         ),
         "Net Contents": FieldResult(
             expected_fields["Net Contents"],
-            net_observed,
-            normalized_net_contents_score(expected_fields["Net Contents"], net_observed),
+            net_detected,
+            net_detected,
+            normalized_net_contents_score(expected_fields["Net Contents"], net_detected),
             "Normalized volume comparison",
             "",
-            "Compares common volume units including ml, L, fl oz, pints, quarts, and gallons.",
+            "Compares volume values extracted directly from OCR text.",
         ),
         "Government Warning": FieldResult(
             GOVERNMENT_WARNING,
-            ocr_text,
+            warning_detected,
+            warning_detected,
             warning_match_score,
             "Normalized hard-check comparison",
             warning_status(warning_match_score),
@@ -301,9 +353,12 @@ def weighted_score(results: Dict[str, FieldResult]) -> int:
 
 def status_for_review(score: int, results: Dict[str, FieldResult], ocr_text: str) -> str:
     warning = results["Government Warning"]
-    if warning.score < WARNING_FAIL_THRESHOLD:
+    if warning.status == "Missing":
         return "Fail"
-    if warning.score < WARNING_PARTIAL_THRESHOLD:
+    if warning.status == "Partial Match":
+        return "Needs Review"
+    key_fields = ["Brand Name", "Class/Type", "Alcohol Content / ABV", "Net Contents"]
+    if any(results[field].score < 60 for field in key_fields):
         return "Needs Review"
     if len(normalize_text(ocr_text)) < OCR_MIN_TEXT_LENGTH:
         return "Needs Review"
@@ -317,12 +372,21 @@ def status_for_review(score: int, results: Dict[str, FieldResult], ocr_text: str
 def review_label(uploaded_file, expected_fields: Dict[str, str]) -> LabelReview:
     start = time.perf_counter()
     image = Image.open(uploaded_file)
-    ocr_text = run_ocr(image)
+    ocr_text, ocr_confidence = run_ocr(image)
     results = score_fields(expected_fields, ocr_text)
     overall = weighted_score(results)
     status = status_for_review(overall, results, ocr_text)
     elapsed = time.perf_counter() - start
-    return LabelReview(uploaded_file.name, ocr_text, results, overall, status, elapsed, ocr_quality_note(ocr_text))
+    return LabelReview(
+        uploaded_file.name,
+        ocr_text,
+        results,
+        overall,
+        status,
+        elapsed,
+        ocr_quality_note(ocr_text),
+        ocr_confidence,
+    )
 
 
 def comparison_rows(review: LabelReview) -> List[Dict[str, str | int]]:
@@ -330,7 +394,7 @@ def comparison_rows(review: LabelReview) -> List[Dict[str, str | int]]:
         {
             "Field": field,
             "Application Value": result.expected,
-            "Label/OCR Value": result.observed[:500],
+            "Detected OCR Value": result.detected[:500] if result.detected else "Not detected",
             "Score": result.score,
             "Status": result.status,
             "Notes": result.notes,
@@ -347,9 +411,10 @@ def build_csv(reviews: List[LabelReview]) -> str:
         "Overall Status",
         "Processing Seconds",
         "OCR Quality Note",
+        "OCR Confidence",
         "Field",
         "Application Value",
-        "Label/OCR Value",
+        "Detected OCR Value",
         "Field Score",
         "Field Status",
         "Notes",
@@ -365,9 +430,14 @@ def build_csv(reviews: List[LabelReview]) -> str:
                     "Overall Status": review.status,
                     "Processing Seconds": f"{review.processing_seconds:.2f}",
                     "OCR Quality Note": review.ocr_quality_note,
+                    "OCR Confidence": (
+                        f"{review.ocr_confidence:.1f}"
+                        if review.ocr_confidence is not None
+                        else "Unavailable"
+                    ),
                     "Field": row["Field"],
                     "Application Value": row["Application Value"],
-                    "Label/OCR Value": row["Label/OCR Value"],
+                    "Detected OCR Value": row["Detected OCR Value"],
                     "Field Score": row["Score"],
                     "Field Status": row["Status"],
                     "Notes": row["Notes"],
@@ -390,6 +460,10 @@ st.title("TTB Label Verification Assistant")
 st.caption("Standalone OCR and matching tool for alcohol label verification by TTB compliance agents.")
 
 st.info("Workflow: Label image -> OCR text extraction -> field matching -> confidence scoring -> human review routing.")
+st.caption(
+    "Known limitation: this prototype does not verify font size, bold formatting, placement, "
+    "or full regulatory compliance."
+)
 
 with st.sidebar:
     st.header("Application Data")
@@ -477,13 +551,22 @@ if run_review:
             st.subheader(review.filename)
             getattr(st, status_type)(f"Status: {review.status}")
 
-            overall_col, warning_col, time_col = st.columns([1, 1, 1])
+            overall_col, warning_col, confidence_col, time_col = st.columns([1, 1, 1, 1])
             with overall_col:
                 render_score_bar("Overall Weighted Score", review.overall_score)
             with warning_col:
                 warning = review.results["Government Warning"]
                 st.metric("Government Warning", warning.status)
                 st.progress(warning.score / 100)
+            with confidence_col:
+                st.metric(
+                    "OCR Confidence",
+                    (
+                        f"{review.ocr_confidence:.1f}/100"
+                        if review.ocr_confidence is not None
+                        else "Unavailable"
+                    ),
+                )
             with time_col:
                 st.metric("Processing Time", f"{review.processing_seconds:.2f}s")
 
@@ -497,6 +580,32 @@ if run_review:
             ):
                 with col:
                     render_score_bar(field, review.results[field].score)
+
+            st.subheader("Detected Fields")
+            st.dataframe(
+                [
+                    {
+                        "Field": field,
+                        "Expected": review.results[field].expected,
+                        "Detected From OCR": (
+                            review.results[field].detected
+                            if review.results[field].detected
+                            else "Not detected"
+                        ),
+                        "Score": review.results[field].score,
+                        "Status": review.results[field].status,
+                    }
+                    for field in [
+                        "Brand Name",
+                        "Class/Type",
+                        "Alcohol Content / ABV",
+                        "Net Contents",
+                        "Government Warning",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
             st.dataframe(
                 comparison_rows(review),

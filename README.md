@@ -159,6 +159,10 @@ The overall score is weighted by compliance importance:
 
 The scoring system is designed to prioritize agent attention, not replace agent judgment. Exact legal requirements such as the government warning are treated as hard checks, while fields such as brand name allow fuzzy matching to account for punctuation, capitalization, and OCR variation.
 
+The app prevents high overall scores from masking a low-confidence field match. If Brand Name, Class/Type, Alcohol Content / ABV, or Net Contents scores below 60, the overall status is routed to **Needs Review** even when the weighted score is high.
+
+This prototype is a decision-support tool requiring human review for low-confidence OCR results.
+
 Example fuzzy match:
 
 | Application Value | Label/OCR Value | Score | Status |
@@ -190,6 +194,7 @@ Government Warning is a hard compliance check. If the required warning is missin
 - This prototype does not integrate with COLA systems or submit decisions to TTB.
 - It is standalone by design and requires no COLA system integration.
 - It does not verify type size, contrast, artwork layout, mandatory placement, formula details, or every regulatory rule.
+- It checks Government Warning wording from OCR text, but does not verify bold formatting, font size, or exact placement; those visual compliance checks remain in scope for human review.
 - OCR can misread stylized fonts, curved bottles, reflective materials, low-resolution images, or rotated text.
 - Fuzzy matching can produce false positives if unrelated text resembles an expected field.
 - Processing speed depends on local CPU, Tesseract installation, image size, and number of uploaded files.
@@ -227,3 +232,5 @@ Even Pass results should be spot-checked when source images are low quality, OCR
 - Add queue management for high-volume review operations.
 - Add integration hooks for approved internal systems after security review.
 - Add automated test fixtures with sample label images and expected outcomes.
+- Add barcode/UPC scan support so reviewers can optionally capture product identifiers from label or package images and compare them against application or distribution metadata when available.
+- Explore barcode/UPC scanning where present on alcohol packaging. Not all labels include scannable product identifiers, so this would be an optional enrichment feature rather than a required validation step.
